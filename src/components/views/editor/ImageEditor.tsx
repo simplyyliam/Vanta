@@ -21,17 +21,52 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
   const dragState = useRef({ dragging: false, startX: 0, startY: 0 });
   const EDGE_THRESHOLD = 20;
-  // const TARGET = { x: -50, y: 200 };
-  // const TOLERANCE = 5;
 
   const [isDragging, setIsDragging] = useState(false);
   const [cursor, setCursor] = useState<'grab' | 'grabbing'>('grab');
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  // const [isTarget, setIsTarget] = useState(false);
   const [quadrant, setQuadrant] = useState('quadrants');
   const [size, setSize] = useState({ width: 0, height: 0 });
 
-  const redraw = (overrideSize?: {width: number, height: number}) => {
+  const drawCornerHandles = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    activeQuadrant: string,
+  ) => {
+    const len = 14; // length of each arm
+    const offset = 3; // distance from image corner
+
+    const corners: Record<
+      string,
+      { cx: number; cy: number; dx: number; dy: number }
+    > = {
+      'top-left': { cx: x - offset, cy: y - offset, dx: 1, dy: 1 },
+      'top-right': { cx: x + w + offset, cy: y - offset, dx: -1, dy: 1 },
+      'bottom-left': { cx: x - offset, cy: y + h + offset, dx: 1, dy: -1 },
+      'bottom-right': { cx: x + w + offset, cy: y + h + offset, dx: -1, dy: -1 },
+    };
+
+    const corner = corners[activeQuadrant];
+    if (!corner) return;
+
+    const { cx, cy, dx, dy } = corner;
+
+    ctx.strokeStyle = '#0C0C0C';
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(cx + dx * len, cy); // horizontal arm end
+    ctx.lineTo(cx, cy); // corner point
+    ctx.lineTo(cx, cy + dy * len); // vertical arm end
+    ctx.stroke();
+  };
+
+  const redraw = (overrideSize?: { width: number; height: number }) => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
@@ -41,9 +76,9 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
     const scale =
       Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75;
-    const override = overrideSize || size
-    const drawWidth = override.width || img.width * scale
-    const drawHeight = override.height || img.height * scale
+    const override = overrideSize || size;
+    const drawWidth = override.width || img.width * scale;
+    const drawHeight = override.height || img.height * scale;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(
@@ -52,6 +87,14 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
       posRef.current.y,
       drawWidth,
       drawHeight,
+    );
+    drawCornerHandles(
+      ctx,
+      posRef.current.x,
+      posRef.current.y,
+      drawWidth,
+      drawHeight,
+      quadrant,
     );
   };
 
@@ -65,10 +108,12 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
+        const dpr = window.devicePixelRatio || 1
+        canvas.width = canvas.offsetWidth * dpr;
+        canvas.height = canvas.offsetHeight * dpr;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+        ctx.scale(dpr, dpr)
 
         const scale =
           Math.min(canvas.width / img.width, canvas.height / img.height) * 0.5;
@@ -145,15 +190,15 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
         startX: e.clientX - posRef.current.x,
         startY: e.clientY - posRef.current.y,
       };
-      isResizing.current = false
-      activeCornerRef.current = null
+      isResizing.current = false;
+      activeCornerRef.current = null;
     }
 
     setCursor('grabbing');
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if(isResizing.current) return
+    if (isResizing.current) return;
     if (!dragState.current.dragging) return;
     posRef.current = {
       x: e.clientX - dragState.current.startX,
@@ -171,66 +216,86 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
   // ————————— Image Mouse Position & Edge Awareness —————————
 
-useEffect(() => {
-  const canvas = canvasRef.current
-  if (!canvas) return
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const handleMouseMove = (e: MouseEvent) => {
-    const img = imgRef.current
-    if (!img) return
-    const rect = canvas.getBoundingClientRect()
-    const mouseX = e.clientX - rect.left
-    const mouseY = e.clientY - rect.top
-    const scale = Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75
-    const imgWidth = size.width || img.width * scale
-    const imgHeight = size.height || img.height * scale
-    const cx = posRef.current.x + imgWidth / 2
-    const cy = posRef.current.y + imgHeight / 2
-    const x = Math.round(mouseX - cx)
-    const y = Math.round(mouseY - cy)
-    setMousePos({ x, y })
+    const handleMouseMove = (e: MouseEvent) => {
+      const img = imgRef.current;
+      if (!img) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const scale =
+        Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75;
+      const imgWidth = size.width || img.width * scale;
+      const imgHeight = size.height || img.height * scale;
+      const cx = posRef.current.x + imgWidth / 2;
+      const cy = posRef.current.y + imgHeight / 2;
+      const x = Math.round(mouseX - cx);
+      const y = Math.round(mouseY - cy);
+      setMousePos({ x, y });
 
-    // ——— Edge detection — always runs ———
-    const nearLeft = Math.abs(x - (-imgWidth / 2)) < EDGE_THRESHOLD
-    const nearRight = Math.abs(x - (imgWidth / 2)) < EDGE_THRESHOLD
-    const nearTop = Math.abs(y - (-imgHeight / 2)) < EDGE_THRESHOLD
-    const nearBottom = Math.abs(y - (imgHeight / 2)) < EDGE_THRESHOLD
-    let quad = ''
-    if (nearTop && nearLeft) quad = 'top-left'
-    else if (nearTop && nearRight) quad = 'top-right'
-    else if (nearBottom && nearLeft) quad = 'bottom-left'
-    else if (nearBottom && nearRight) quad = 'bottom-right'
-    setQuadrant(quad || 'none')
+      // ——— Edge detection — always runs ———
+      const nearLeft = Math.abs(x - -imgWidth / 2) < EDGE_THRESHOLD;
+      const nearRight = Math.abs(x - imgWidth / 2) < EDGE_THRESHOLD;
+      const nearTop = Math.abs(y - -imgHeight / 2) < EDGE_THRESHOLD;
+      const nearBottom = Math.abs(y - imgHeight / 2) < EDGE_THRESHOLD;
+      let quad = '';
+      if (nearTop && nearLeft) quad = 'top-left';
+      else if (nearTop && nearRight) quad = 'top-right';
+      else if (nearBottom && nearLeft) quad = 'bottom-left';
+      else if (nearBottom && nearRight) quad = 'bottom-right';
+      setQuadrant(quad || 'none');
 
-    // ——— Resize logic — only when resizing ———
-    if (!isResizing.current) return
-    const dx = e.clientX - startRef.current.mouseX
-    const dy = e.clientY - startRef.current.mouseY
-    let width = startRef.current.width
-    let height = startRef.current.height
-    let rx = startRef.current.x
-    let ry = startRef.current.y
+      // ——— Resize logic — only when resizing ———
+      if (!isResizing.current) return;
+      const dx = e.clientX - startRef.current.mouseX;
+      const dy = e.clientY - startRef.current.mouseY;
+      let width = startRef.current.width;
+      let height = startRef.current.height;
+      let rx = startRef.current.x;
+      let ry = startRef.current.y;
 
-    switch (activeCornerRef.current) {
-      case 'bottom-right': width += dx; height += dy; break
-      case 'top-right':    width += dx; height -= dy; ry += dy; break
-      case 'bottom-left':  width -= dx; height += dy; rx += dx; break
-      case 'top-left':     width -= dx; height -= dy; rx += dx; ry += dy; break
-    }
+      switch (activeCornerRef.current) {
+        case 'bottom-right':
+          width += dx;
+          height += dy;
+          break;
+        case 'top-right':
+          width += dx;
+          height -= dy;
+          ry += dy;
+          break;
+        case 'bottom-left':
+          width -= dx;
+          height += dy;
+          rx += dx;
+          break;
+        case 'top-left':
+          width -= dx;
+          height -= dy;
+          rx += dx;
+          ry += dy;
+          break;
+      }
 
-    const newSize = {
-      width: Math.max(120, width),
-      height: Math.max(120, height),
+      const newSize = {
+        width: Math.max(120, width),
+        height: Math.max(120, height),
+      };
+      posRef.current = { x: rx, y: ry };
+      setSize(newSize);
+      redraw(newSize);
     };
-    posRef.current = { x: rx, y: ry }
-    setSize(newSize)
-    redraw(newSize)
-  }
 
-  window.addEventListener('mousemove', handleMouseMove)
-  return () => window.removeEventListener('mousemove', handleMouseMove)
-}, [size])
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [size]);
 
+  useEffect(() => {
+    redraw();
+  }, [quadrant]);
 
   return (
     <div
