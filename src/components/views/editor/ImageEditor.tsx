@@ -42,7 +42,7 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
     activeQuadrant: string,
   ) => {
     const len = 14; // length of each arm
-    const offset = 3; // distance from image corner
+    const offset = 0; // distance from image corner
 
     const corners: Record<
       string,
@@ -112,8 +112,8 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
         if (!ctx) return;
         ctx.scale(dpr, dpr);
 
-        const logicalWidth = canvas.offsetWidth
-        const logicalHeight = canvas.offsetHeight
+        const logicalWidth = canvas.offsetWidth;
+        const logicalHeight = canvas.offsetHeight;
 
         const scale =
           Math.min(logicalWidth / img.width, logicalHeight / img.height) * 0.5;
@@ -185,18 +185,31 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
     if (hit !== -1) {
       selectedRef.current = imgRef.current.length - 1 - hit;
-      redraw(); // redraw to show handles on newly selected image
     }
 
     const selected = imgRef.current[selectedRef.current!];
     if (!selected) return;
 
-    const isNearEdge = [
-      'top-left',
-      'top-right',
-      'bottom-left',
-      'bottom-right',
-    ].includes(quadrant);
+    // ——— Recalculate quadrant fresh from the selected image ———
+    
+    const { pos, size } = selected;
+    const cx = pos.x + size.width / 2;
+    const cy = pos.y + size.height / 2;
+    const x = mx - cx;
+    const y = my - cy;
+
+    const nearLeft = Math.abs(x - -size.width / 2) < EDGE_THRESHOLD;
+    const nearRight = Math.abs(x - size.width / 2) < EDGE_THRESHOLD;
+    const nearTop = Math.abs(y - -size.height / 2) < EDGE_THRESHOLD;
+    const nearBottom = Math.abs(y - size.height / 2) < EDGE_THRESHOLD;
+
+    let freshQuadrant = '';
+    if (nearTop && nearLeft) freshQuadrant = 'top-left';
+    else if (nearTop && nearRight) freshQuadrant = 'top-right';
+    else if (nearBottom && nearLeft) freshQuadrant = 'bottom-left';
+    else if (nearBottom && nearRight) freshQuadrant = 'bottom-right';
+
+    const isNearEdge = freshQuadrant !== '';
 
     if (isNearEdge) {
       // ——— Resize mode ———
@@ -209,7 +222,7 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
         y: selected.pos.y,
       };
       isResizing.current = true;
-      activeCornerRef.current = quadrant;
+      activeCornerRef.current = freshQuadrant;
       dragState.current.dragging = false;
     } else {
       // ——— Drag mode ———
@@ -222,14 +235,15 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
       activeCornerRef.current = null;
     }
 
+    redraw()
     setCursor('grabbing');
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isResizing.current) return;
     if (!dragState.current.dragging) return;
-    const selected = imgRef.current[selectedRef.current!]
-    if(!selected) return 
+    const selected = imgRef.current[selectedRef.current!];
+    if (!selected) return;
 
     selected.pos = {
       x: e.clientX - dragState.current.startX,
@@ -247,71 +261,87 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
   // ————————— Image Mouse Position & Edge Awareness —————————
 
-useEffect(() => {
-  const canvas = canvasRef.current
-  if (!canvas) return
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const handleMouseMove = (e: MouseEvent) => {
-    const rect = canvas.getBoundingClientRect()
-    const mouseX = e.clientX - rect.left
-    const mouseY = e.clientY - rect.top
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
-    // ——— Get selected image ———
-    const selected = imgRef.current[selectedRef.current!]
-    if (!selected) return
+      // ——— Get selected image ———
+      const selected = imgRef.current[selectedRef.current!];
+      if (!selected) return;
 
-    const { pos, size } = selected
-    const imgWidth = size.width
-    const imgHeight = size.height
-    const cx = pos.x + imgWidth / 2
-    const cy = pos.y + imgHeight / 2
-    const x = Math.round(mouseX - cx)
-    const y = Math.round(mouseY - cy)
-    setMousePos({ x, y })
+      const { pos, size } = selected;
+      const imgWidth = size.width;
+      const imgHeight = size.height;
+      const cx = pos.x + imgWidth / 2;
+      const cy = pos.y + imgHeight / 2;
+      const x = Math.round(mouseX - cx);
+      const y = Math.round(mouseY - cy);
+      setMousePos({ x, y });
 
-    // ——— Edge detection — always runs ———
-    const nearLeft   = Math.abs(x - (-imgWidth / 2))  < EDGE_THRESHOLD
-    const nearRight  = Math.abs(x - (imgWidth / 2))   < EDGE_THRESHOLD
-    const nearTop    = Math.abs(y - (-imgHeight / 2)) < EDGE_THRESHOLD
-    const nearBottom = Math.abs(y - (imgHeight / 2))  < EDGE_THRESHOLD
+      // ——— Edge detection — always runs ———
+      const nearLeft = Math.abs(x - -imgWidth / 2) < EDGE_THRESHOLD;
+      const nearRight = Math.abs(x - imgWidth / 2) < EDGE_THRESHOLD;
+      const nearTop = Math.abs(y - -imgHeight / 2) < EDGE_THRESHOLD;
+      const nearBottom = Math.abs(y - imgHeight / 2) < EDGE_THRESHOLD;
 
-    let quad = ''
-    if (nearTop && nearLeft)       quad = 'top-left'
-    else if (nearTop && nearRight)    quad = 'top-right'
-    else if (nearBottom && nearLeft)  quad = 'bottom-left'
-    else if (nearBottom && nearRight) quad = 'bottom-right'
-    setQuadrant(quad || 'none')
+      let quad = '';
+      if (nearTop && nearLeft) quad = 'top-left';
+      else if (nearTop && nearRight) quad = 'top-right';
+      else if (nearBottom && nearLeft) quad = 'bottom-left';
+      else if (nearBottom && nearRight) quad = 'bottom-right';
+      setQuadrant(quad || 'none');
 
-    // ——— Resize logic — only when resizing ———
-    if (!isResizing.current) return
+      // ——— Resize logic — only when resizing ———
+      if (!isResizing.current) return;
 
-    const dx = e.clientX - startRef.current.mouseX
-    const dy = e.clientY - startRef.current.mouseY
-    let width  = startRef.current.width
-    let height = startRef.current.height
-    let rx = startRef.current.x
-    let ry = startRef.current.y
+      const dx = e.clientX - startRef.current.mouseX;
+      const dy = e.clientY - startRef.current.mouseY;
+      let width = startRef.current.width;
+      let height = startRef.current.height;
+      let rx = startRef.current.x;
+      let ry = startRef.current.y;
 
-    switch (activeCornerRef.current) {
-      case 'bottom-right': width += dx; height += dy; break
-      case 'top-right':    width += dx; height -= dy; ry += dy; break
-      case 'bottom-left':  width -= dx; height += dy; rx += dx; break
-      case 'top-left':     width -= dx; height -= dy; rx += dx; ry += dy; break
-    }
+      switch (activeCornerRef.current) {
+        case 'bottom-right':
+          width += dx;
+          height += dy;
+          break;
+        case 'top-right':
+          width += dx;
+          height -= dy;
+          ry += dy;
+          break;
+        case 'bottom-left':
+          width -= dx;
+          height += dy;
+          rx += dx;
+          break;
+        case 'top-left':
+          width -= dx;
+          height -= dy;
+          rx += dx;
+          ry += dy;
+          break;
+      }
 
-    // ——— Write back into selected entry ———
-    selected.size = {
-      width: Math.max(120, width),
-      height: Math.max(120, height),
-    }
-    selected.pos = { x: rx, y: ry }
+      // ——— Write back into selected entry ———
+      selected.size = {
+        width: Math.max(120, width),
+        height: Math.max(120, height),
+      };
+      selected.pos = { x: rx, y: ry };
 
-    redraw()
-  }
+      redraw();
+    };
 
-  window.addEventListener('mousemove', handleMouseMove)
-  return () => window.removeEventListener('mousemove', handleMouseMove)
-}, [])  
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   useEffect(() => {
     redraw();
