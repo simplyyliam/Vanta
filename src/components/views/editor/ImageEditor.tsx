@@ -8,6 +8,17 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const posRef = useRef({ x: 0, y: 0 });
+  const isResizing = useRef(false);
+  const activeCornerRef = useRef<string | null>(null);
+  const startRef = useRef({
+    mouseX: 0,
+    mouseY: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+  });
+
   const dragState = useRef({ dragging: false, startX: 0, startY: 0 });
   const EDGE_THRESHOLD = 20;
   // const TARGET = { x: -50, y: 200 };
@@ -18,20 +29,9 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   // const [isTarget, setIsTarget] = useState(false);
   const [quadrant, setQuadrant] = useState('quadrants');
-  // ————————— Drag Events —————————
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  // ————————— Image File Conversion —————————
-
-  const redraw = () => {
+  const redraw = (overrideSize?: {width: number, height: number}) => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
@@ -41,18 +41,23 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
     const scale =
       Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75;
+    const override = overrideSize || size
+    const drawWidth = override.width || img.width * scale
+    const drawHeight = override.height || img.height * scale
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(
       img,
       posRef.current.x,
       posRef.current.y,
-      img.width * scale,
-      img.height * scale,
+      drawWidth,
+      drawHeight,
     );
   };
 
-  const handleFile = useCallback(
+  // ————————— Image File Conversion —————————
+
+  const handleImage = useCallback(
     (file: File) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -85,26 +90,70 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
     [onImageLoad],
   );
 
+  // ————————— Drag Events —————————
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
 
     const file = e.dataTransfer.files[0];
-    if (file?.type.startsWith('image/')) handleFile(file);
+    if (file?.type.startsWith('image/')) handleImage(file);
+    console.log('FILE:', e.dataTransfer.files[0]);
   };
 
   // ————————— Mouse Events —————————
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    dragState.current = {
-      dragging: true,
-      startX: e.clientX - posRef.current.x,
-      startY: e.clientY - posRef.current.y,
-    };
+    const img = imgRef.current;
+    if (!img) return;
+
+    const isNearEdge = [
+      'top-left',
+      'top-right',
+      'bottom-left',
+      'bottom-right',
+    ].includes(quadrant);
+
+    if (isNearEdge) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const scale =
+        Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75;
+      startRef.current = {
+        mouseX: e.clientX,
+        mouseY: e.clientY,
+        width: size.width || img.width * scale,
+        height: size.height || img.height * scale,
+        x: posRef.current.x,
+        y: posRef.current.y,
+      };
+      isResizing.current = true;
+      activeCornerRef.current = quadrant;
+      dragState.current.dragging = false;
+    } else {
+      dragState.current = {
+        dragging: true,
+        startX: e.clientX - posRef.current.x,
+        startY: e.clientY - posRef.current.y,
+      };
+      isResizing.current = false
+      activeCornerRef.current = null
+    }
+
     setCursor('grabbing');
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if(isResizing.current) return
     if (!dragState.current.dragging) return;
     posRef.current = {
       x: e.clientX - dragState.current.startX,
@@ -116,67 +165,72 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
   const handleMouseUp = () => {
     dragState.current.dragging = false;
+    isResizing.current = false;
     setCursor('grab');
   };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // ————————— Image Mouse Position & Edge Awareness —————————
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const img = imgRef.current;
-      if (!img) return;
+useEffect(() => {
+  const canvas = canvasRef.current
+  if (!canvas) return
 
-      const rect = canvas.getBoundingClientRect();
+  const handleMouseMove = (e: MouseEvent) => {
+    const img = imgRef.current
+    if (!img) return
+    const rect = canvas.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+    const scale = Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75
+    const imgWidth = size.width || img.width * scale
+    const imgHeight = size.height || img.height * scale
+    const cx = posRef.current.x + imgWidth / 2
+    const cy = posRef.current.y + imgHeight / 2
+    const x = Math.round(mouseX - cx)
+    const y = Math.round(mouseY - cy)
+    setMousePos({ x, y })
 
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+    // ——— Edge detection — always runs ———
+    const nearLeft = Math.abs(x - (-imgWidth / 2)) < EDGE_THRESHOLD
+    const nearRight = Math.abs(x - (imgWidth / 2)) < EDGE_THRESHOLD
+    const nearTop = Math.abs(y - (-imgHeight / 2)) < EDGE_THRESHOLD
+    const nearBottom = Math.abs(y - (imgHeight / 2)) < EDGE_THRESHOLD
+    let quad = ''
+    if (nearTop && nearLeft) quad = 'top-left'
+    else if (nearTop && nearRight) quad = 'top-right'
+    else if (nearBottom && nearLeft) quad = 'bottom-left'
+    else if (nearBottom && nearRight) quad = 'bottom-right'
+    setQuadrant(quad || 'none')
 
-      const scale =
-        Math.min(canvas.width / img.width, canvas.height / img.height) * 0.75;
+    // ——— Resize logic — only when resizing ———
+    if (!isResizing.current) return
+    const dx = e.clientX - startRef.current.mouseX
+    const dy = e.clientY - startRef.current.mouseY
+    let width = startRef.current.width
+    let height = startRef.current.height
+    let rx = startRef.current.x
+    let ry = startRef.current.y
 
-      const imgX = posRef.current.x;
-      const imgY = posRef.current.y;
+    switch (activeCornerRef.current) {
+      case 'bottom-right': width += dx; height += dy; break
+      case 'top-right':    width += dx; height -= dy; ry += dy; break
+      case 'bottom-left':  width -= dx; height += dy; rx += dx; break
+      case 'top-left':     width -= dx; height -= dy; rx += dx; ry += dy; break
+    }
 
-      const imgWidth = img.width * scale;
-      const imgHeight = img.height * scale;
-
-      const cx = imgX + imgWidth / 2;
-      const cy = imgY + imgHeight / 2;
-
-      const x = Math.round(mouseX - cx);
-      const y = Math.round(mouseY - cy);
-
-      const leftEdge = -imgWidth / 2;
-      const rightEdge = imgWidth / 2;
-      const topEdge = -imgHeight / 2;
-      const bottomEdge = imgHeight / 2;
-
-      const nearLeft = Math.abs(x - leftEdge) < EDGE_THRESHOLD;
-      const nearRight = Math.abs(x - rightEdge) < EDGE_THRESHOLD;
-      const nearTop = Math.abs(y - topEdge) < EDGE_THRESHOLD;
-      const nearBottom = Math.abs(y - bottomEdge) < EDGE_THRESHOLD;
-
-      let quad = '';
-
-      if (nearTop && nearLeft) quad = 'top-left';
-      else if (nearTop && nearRight) quad = 'top-right';
-      else if (nearBottom && nearLeft) quad = 'bottom-left';
-      else if (nearBottom && nearRight) quad = 'bottom-right';
-
-      setQuadrant(quad);
-      setMousePos({ x, y });
-
-      // if (Math.abs(x - TARGET.x) < TOLERANCE && Math.abs(y - TARGET.y) < TOLERANCE) {
-      //   console.log('Mouse is on target area');
-      // }
+    const newSize = {
+      width: Math.max(120, width),
+      height: Math.max(120, height),
     };
+    posRef.current = { x: rx, y: ry }
+    setSize(newSize)
+    redraw(newSize)
+  }
 
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-    };
-  }, []);
+  window.addEventListener('mousemove', handleMouseMove)
+  return () => window.removeEventListener('mousemove', handleMouseMove)
+}, [size])
+
 
   return (
     <div
