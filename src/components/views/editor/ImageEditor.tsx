@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 type ImageEditorProps = {
-  onImageLoad: (img: HTMLImageElement) => void;
+  onImageLoad?: (img: HTMLImageElement) => void;
 };
 
 export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
@@ -136,7 +136,7 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
         });
         selectedRef.current = imgRef.current.length - 1; // selecting the newest image in the list
         redraw();
-        onImageLoad(img);
+        onImageLoad?.(img);
         URL.revokeObjectURL(url);
       };
       img.src = url;
