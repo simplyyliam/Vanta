@@ -98,7 +98,7 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
   // ————————— Image File Conversion —————————
 
   const handleImage = useCallback(
-    (file: File) => {
+    (file: File, dropX?: number, dropY?: number) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -114,21 +114,24 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
 
         const logicalWidth = canvas.offsetWidth;
         const logicalHeight = canvas.offsetHeight;
-
         const scale =
           Math.min(logicalWidth / img.width, logicalHeight / img.height) * 0.5;
-
-        const offset = imgRef.current.length * 20;
+        const cx = dropX ?? logicalWidth / 2
+        const cy = dropY ?? logicalHeight / 2
+      const drawWidth = img.width * scale
+      const drawHeight = img.height * scale
+        
+        // const offset = imgRef.current.length * 20;
 
         imgRef.current.push({
           img,
           pos: {
-            x: (logicalWidth / dpr - img.width * scale) / 2 + offset,
-            y: (logicalHeight / dpr - img.height * scale) / 2 + offset,
+            x: cx - drawWidth / 2,
+            y: cy - drawHeight / 2
           },
           size: {
-            width: img.width * scale,
-            height: img.height * scale,
+            width: drawWidth,
+            height: drawHeight
           },
         });
         selectedRef.current = imgRef.current.length - 1; // selecting the newest image in the list
@@ -158,7 +161,7 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
     setIsDragging(false);
 
     const file = e.dataTransfer.files[0];
-    if (file?.type.startsWith('image/')) handleImage(file);
+    if (file?.type.startsWith('image/')) handleImage(file, e.clientX, e.clientY);
     console.log('FILE:', e.dataTransfer.files[0]);
   };
 
