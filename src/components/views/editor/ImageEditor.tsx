@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useWebGLLut } from '../../../hooks/useWebGL';
 
 type ImageEditorProps = {
   onImageLoad?: (img: HTMLImageElement) => void;
 };
 
 export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
+  const { applyLogPreview } = useWebGLLut()
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<
     {
       img: HTMLImageElement;
+      processed?: ImageBitmap
       pos: { x: number; y: number };
       size: { width: number; height: number };
     }[]
@@ -32,6 +35,21 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
   const [cursor, setCursor] = useState<'grab' | 'grabbing'>('grab');
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [quadrant, setQuadrant] = useState('quadrants');
+  const [logPreviewEnabled, setLogPreviewEnabled] = useState(false)
+
+
+  const toggleLogPreview = async () => {
+    const next = !logPreviewEnabled
+    setLogPreviewEnabled(next)
+
+    if(next) {
+      for(const entry of imgRef.current) {
+        const bitmap = await applyLogPreview(entry.img)
+        if(bitmap) entry.processed = bitmap
+      }
+    }
+    redraw()
+  }
 
   const drawCornerHandles = (
     ctx: CanvasRenderingContext2D,
@@ -86,8 +104,9 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
     ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
     imgRef.current.forEach((entry, i) => {
-      const { img, pos, size } = entry;
-      ctx.drawImage(img, pos.x, pos.y, size.width, size.height);
+      const source = logPreviewEnabled && entry.processed ? entry.processed : entry.img
+      const { pos, size } = entry;
+      ctx.drawImage(source, pos.x, pos.y, size.width, size.height);
 
       if (i === selectedRef.current) {
         drawCornerHandles(ctx, pos.x, pos.y, size.width, size.height, quadrant);
@@ -389,6 +408,12 @@ export default function ImageEditor({ onImageLoad }: ImageEditorProps) {
         >
           {quadrant}
         </span>
+        <span
+          className={`flex text-black bg-neutral-200/25 border border-white/20 backdrop-blur-md rounded-full py-2.5 px-3.5 w-fit transition-all`}
+        >
+          mode: {logPreviewEnabled ? 'shader-log-preview' : 'source'}
+        </span>
+        <button onClick={toggleLogPreview} className={`flex text-black border border-white/20 backdrop-blur-md rounded-full py-2.5 px-3.5 w-fit transition-all ${logPreviewEnabled ? "bg-red-200/25" : "bg-neutral-200/25"}`}>{logPreviewEnabled ? "Disable Log Preview" : "Enable Log Preview"}</button>
       </div>
     </div>
   );

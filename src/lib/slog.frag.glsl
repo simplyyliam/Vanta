@@ -13,7 +13,7 @@ void main() {
 
   // Map the color through the LUT
   // LUT is a 512x512 texture representing a 3D 64³ color cube
-  float lutSize = 64.0;
+  float lutSize = 33.0;
   float r = color.r * (lutSize - 1.0) / lutSize;
   float g = color.g * (lutSize - 1.0) / lutSize;
   float b = color.b * (lutSize - 1.0) / lutSize;
